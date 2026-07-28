@@ -1,3 +1,12 @@
+"""Correctness tests for the four chi-squared implementations in project_benchmark.py.
+
+Covers: cross-implementation agreement on random data, a hand-computed
+2x2 table checked against scipy, missing-value handling, the two NaN edge
+cases (category disappearing after pairwise deletion, only one category
+present), and - when napypi is installed - direct numerical agreement with
+the real NApy package.
+"""
+
 import numpy as np
 import pytest
 from scipy.stats import chi2_contingency
@@ -26,6 +35,10 @@ ALL_IMPLS = {
 
 @pytest.fixture(params=[(8, 60, 4, 0.1), (15, 40, 3, 0.2), (5, 25, 5, 0.0)])
 def sim_data(request):
+    """Simulated categorical matrix, parametrized over several (features, samples,
+    categories, missing_ratio) combinations - including one with no missing
+    values at all - so every test using this fixture runs three times.
+    """
     n_features, n_samples, n_categories, missing_ratio = request.param
     rng = np.random.default_rng(123)
     return simulate_categorical_matrix(
@@ -34,6 +47,7 @@ def sim_data(request):
 
 
 def test_all_implementations_agree(sim_data):
+    """All four implementations must produce identical chi2/p-values on the same data."""
     results = {name: fn(sim_data) for name, fn in ALL_IMPLS.items()}
     ref = results["python_ref"]
     for name, res in results.items():
@@ -46,8 +60,11 @@ def test_all_implementations_agree(sim_data):
 
 
 def test_known_2x2_table_matches_scipy():
-    # Hand-built so the resulting 2x2 contingency table is exactly:
-    # [[2, 1], [1, 2]]
+    """Independent ground truth: compare against scipy's chi2_contingency directly.
+
+    Hand-built so the resulting 2x2 contingency table is exactly:
+    [[2, 1], [1, 2]]
+    """
     x = np.array([0, 0, 0, 1, 1, 1], dtype=np.int64)
     y = np.array([0, 0, 1, 0, 1, 1], dtype=np.int64)
     data = np.stack([x, y])
@@ -61,9 +78,12 @@ def test_known_2x2_table_matches_scipy():
 
 
 def test_missing_values_are_pairwise_removed():
-    # Without missing values, x/y are perfectly correlated (chi2 large).
-    # Injecting NAN_VALUE_CAT into a few entries must not crash and must
-    # only use the remaining valid pairs.
+    """Missing entries must be excluded per-pair, not cause a crash or corrupt the result.
+
+    Without missing values, x/y are perfectly correlated (chi2 large).
+    Injecting NAN_VALUE_CAT into a few entries must not crash and must
+    only use the remaining valid pairs.
+    """
     x = np.array([0, 0, 1, 1, 0, 1, 0, 1] * 3, dtype=np.int64)
     y = x.copy()
     y[0] = NAN_VALUE_CAT
@@ -76,8 +96,11 @@ def test_missing_values_are_pairwise_removed():
 
 
 def test_category_disappearing_after_deletion_gives_nan():
-    # Feature x has categories {0, 1, 2}, but every sample where x == 2
-    # has a missing y-value -> category 2 disappears after pairwise deletion.
+    """A category present before missing-value removal but absent after must give NaN.
+
+    Feature x has categories {0, 1, 2}, but every sample where x == 2
+    has a missing y-value -> category 2 disappears after pairwise deletion.
+    """
     x = np.array([0, 0, 1, 1, 2, 2], dtype=np.int64)
     y = np.array([0, 1, 0, 1, NAN_VALUE_CAT, NAN_VALUE_CAT], dtype=np.int64)
     data = np.stack([x, y])
@@ -89,6 +112,7 @@ def test_category_disappearing_after_deletion_gives_nan():
 
 
 def test_single_category_gives_nan():
+    """A feature with only one distinct category makes the test undefined (NaN)."""
     x = np.zeros(20, dtype=np.int64)
     y = np.array([0, 1] * 10, dtype=np.int64)
     data = np.stack([x, y])
@@ -100,6 +124,13 @@ def test_single_category_gives_nan():
 
 @pytest.mark.skipif(napy is None, reason="napypi not installed")
 def test_matches_napy_ground_truth(sim_data):
+    """Direct comparison against the real napypi package's chi_squared output.
+
+    The diagonal is excluded because napy computes a real (large) self-vs-
+    self statistic there, whereas this project's implementations leave the
+    diagonal as NaN by convention (self-comparisons are not a meaningful
+    pairwise test).
+    """
     napy_result = napy.chi_squared(
         sim_data.astype(np.float64),
         nan_value=float(NAN_VALUE_CAT),
