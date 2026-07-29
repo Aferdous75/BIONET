@@ -25,8 +25,6 @@ conda activate bionets
 pip install -r requirements.txt
 ```
 
-(`napypi` pulls in its own pinned numpy/scipy/numba/torch versions, which
-is why `requirements.txt` looks stricter than a typical project.)
 
 ## Running the correctness tests
 
